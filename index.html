@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NoNoise · teste do comprovante</title>
+<title>NoNoise · confirmação</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root {
@@ -25,96 +25,115 @@
   dl { background: var(--card); border-radius: 12px; padding: 12px 16px; margin: 0 0 16px; }
   dt { color: var(--hint); font-size: 14px; }
   dd { margin: 0 0 8px; overflow-wrap: anywhere; }
-  textarea {
-    width: 100%;
-    box-sizing: border-box;
-    min-height: 160px;
-    padding: 12px;
-    border: 0;
-    border-radius: 12px;
-    background: var(--card);
-    color: var(--fg);
-    font: 13px/1.4 ui-monospace, Consolas, monospace;
-  }
   button {
+    display: block;
     width: 100%;
     margin-top: 12px;
     padding: 12px;
     border: 0;
     border-radius: 12px;
-    background: var(--accent);
-    color: var(--accent-fg);
     font-size: 16px;
   }
-  .dica { color: var(--hint); font-size: 14px; }
+  .principal { background: var(--accent); color: var(--accent-fg); }
+  .secundario { background: var(--card); color: var(--fg); }
+  button:disabled { opacity: 0.6; }
+  .dica { color: var(--hint); }
 </style>
 </head>
 <body>
-<h1>Teste do comprovante</h1>
-<div id="conteudo"></div>
+<h1>Pedido de liberação</h1>
+<div id="conteudo"><p class="dica">Carregando…</p></div>
 <script>
-  // Página da fase 0: mostra os dados que o Telegram entrega ao abrir o Mini App,
-  // para conferir a assinatura no PC. Nada é enviado para lugar nenhum.
+  // A página só mostra o pedido e entrega o comprovante do Telegram. Quem decide se a liberação vale
+  // são os aparelhos, conferindo a assinatura; por isso a página não precisa de login.
   (function () {
+    const API = 'https://gnjhbhifsvhbhwlgfdal.supabase.co/functions/v1/confirmacao';
     const tg = window.Telegram && window.Telegram.WebApp;
     const alvo = document.getElementById('conteudo');
-    const bruto = tg ? tg.initData : '';
+    const codigo = tg && tg.initDataUnsafe ? tg.initDataUnsafe.start_param : '';
 
-    function paragrafo(texto, classe) {
-      const p = document.createElement('p');
-      p.textContent = texto;
-      if (classe) p.className = classe;
-      alvo.appendChild(p);
-    }
-
-    if (!bruto) {
-      paragrafo('Nenhum dado do Telegram. Abra esta página pelo link do bot, dentro do Telegram.', 'dica');
+    if (!tg || !tg.initData || !codigo) {
+      aviso('Abra esta página pelo botão "Abrir para aprovar" do pedido, dentro do Telegram.');
       return;
     }
-
     tg.ready();
     tg.expand();
 
-    const campos = new URLSearchParams(bruto);
-    let usuario = {};
-    try { usuario = JSON.parse(campos.get('user') || '{}'); } catch (e) { usuario = {}; }
-    const abertoEm = campos.get('auth_date')
-      ? new Date(Number(campos.get('auth_date')) * 1000).toLocaleString('pt-BR')
-      : '(ausente)';
+    chamar(API + '?codigo=' + encodeURIComponent(codigo))
+      .then(function (r) { r.ok ? mostrar(r.corpo.pedido) : aviso(r.corpo.erro || 'Pedido não encontrado.'); })
+      .catch(function () { aviso('Sem conexão com o servidor. Feche e abra de novo.'); });
 
-    const lista = document.createElement('dl');
-    function linha(rotulo, valor) {
+    function mostrar(p) {
+      alvo.replaceChildren();
+      const lista = document.createElement('dl');
+      linha(lista, 'O que libera', p.nome ? p.nome + ' (' + p.lista + ')' : p.lista);
+      linha(lista, 'Por quanto tempo', p.minutos + ' min');
+      linha(lista, 'Em quais aparelhos', p.aparelhos.join(', '));
+      linha(lista, 'Motivo', p.motivo);
+      (p.itens || []).forEach(function (item) {
+        const partes = [].concat(item.itens.dominios || [], item.itens.processos || [], item.itens.padroesDeUrl || []);
+        if (partes.length) linha(lista, 'Inclui, no ' + item.aparelho, partes.join(', '));
+      });
+      alvo.appendChild(lista);
+
+      if (p.estado !== 'pendente') { paragrafo('Este pedido já foi ' + p.estado + '.'); return; }
+      if (p.vencido) { paragrafo('Este pedido venceu. Quem pediu precisa fazer um novo.'); return; }
+
+      const liberar = botao('Liberar por ' + p.minutos + ' min', 'principal');
+      const agoraNao = botao('Agora não', 'secundario');
+      agoraNao.onclick = function () { tg.close(); };
+      liberar.onclick = function () { confirmar(liberar, agoraNao); };
+    }
+
+    function confirmar(liberar, agoraNao) {
+      liberar.disabled = agoraNao.disabled = true;
+      liberar.textContent = 'Enviando…';
+      chamar(API, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ initData: tg.initData }) })
+        .then(function (r) {
+          if (!r.ok) { aviso(r.corpo.erro || 'Não foi possível liberar.'); return; }
+          const ate = new Date(r.corpo.ate).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          aviso('Liberado até ' + ate + '. Pode fechar esta janela.');
+          setTimeout(function () { tg.close(); }, 2500);
+        })
+        .catch(function () {
+          liberar.disabled = agoraNao.disabled = false;
+          liberar.textContent = 'Tentar de novo';
+        });
+    }
+
+    function chamar(endereco, opcoes) {
+      return fetch(endereco, opcoes).then(function (resposta) {
+        return resposta.json().then(function (corpo) { return { ok: resposta.ok, corpo: corpo }; });
+      });
+    }
+
+    function linha(lista, rotulo, valor) {
       const dt = document.createElement('dt');
       dt.textContent = rotulo;
       const dd = document.createElement('dd');
       dd.textContent = valor;
       lista.append(dt, dd);
     }
-    linha('Assinatura para terceiros (signature)', campos.has('signature') ? 'presente' : 'AUSENTE');
-    linha('Parâmetro do link (start_param)', campos.get('start_param') || '(ausente)');
-    linha('Usuário', usuario.id ? usuario.id + ' (' + (usuario.first_name || '') + ')' : '(ausente)');
-    linha('Aberto em', abertoEm);
-    alvo.appendChild(lista);
 
-    const area = document.createElement('textarea');
-    area.readOnly = true;
-    area.value = bruto;
-    alvo.appendChild(area);
+    function botao(texto, classe) {
+      const b = document.createElement('button');
+      b.textContent = texto;
+      b.className = classe;
+      alvo.appendChild(b);
+      return b;
+    }
 
-    const botao = document.createElement('button');
-    botao.textContent = 'Copiar dados';
-    botao.addEventListener('click', async function () {
-      try {
-        await navigator.clipboard.writeText(bruto);
-      } catch (e) {
-        area.select();
-        document.execCommand('copy');
-      }
-      botao.textContent = 'Copiado';
-    });
-    alvo.appendChild(botao);
+    function paragrafo(texto) {
+      const p = document.createElement('p');
+      p.className = 'dica';
+      p.textContent = texto;
+      alvo.appendChild(p);
+    }
 
-    paragrafo('Cole o texto copiado em "Mensagens salvas" no Telegram para pegá-lo no PC.', 'dica');
+    function aviso(texto) {
+      alvo.replaceChildren();
+      paragrafo(texto);
+    }
   })();
 </script>
 </body>
