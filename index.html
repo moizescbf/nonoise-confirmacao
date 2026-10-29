@@ -70,7 +70,8 @@
       linha(lista, 'Por quanto tempo', p.minutos + ' min');
       linha(lista, 'Em quais aparelhos', p.aparelhos.join(', '));
       (p.itens || []).forEach(function (item) {
-        const partes = [].concat(item.itens.dominios || [], item.itens.processos || [], item.itens.padroesDeUrl || []);
+        const partes = [].concat(item.itens.filtroAdulto ? ['todos os sites adultos (filtro de DNS)'] : [],
+          item.itens.dominios || [], item.itens.processos || [], item.itens.padroesDeUrl || []);
         if (partes.length) linha(lista, 'Inclui, no ' + item.aparelho, partes.join(', '));
       });
       alvo.appendChild(lista);
