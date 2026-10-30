@@ -50,7 +50,7 @@
   // código dela bate com o do link aberto: assim o servidor não consegue mostrar uma coisa e liberar outra.
   (function () {
     const API = 'https://gnjhbhifsvhbhwlgfdal.supabase.co/functions/v1/confirmacao';
-    const APARELHOS = { pc: 'PC', celular: 'Celular' };
+    const APARELHOS = { pc: 'PC', celular: 'Celular', tablet: 'Tablet' };
     const tg = window.Telegram && window.Telegram.WebApp;
     const alvo = document.getElementById('conteudo');
     const codigo = tg && tg.initDataUnsafe ? tg.initDataUnsafe.start_param : '';
@@ -101,9 +101,11 @@
       const lista = document.createElement('dl');
       linha(lista, 'O que libera', mesmaLista && p.nome ? p.nome + ' (' + intencao.lista + ')' : intencao.lista);
       linha(lista, 'Por quanto tempo', intencao.minutos + ' min');
-      linha(lista, 'Em quais aparelhos', intencao.aparelhos.map(function (a) { return APARELHOS[a] || a; }).join(', '));
-      (mesmaLista ? p.itens || [] : []).forEach(function (item) {
+      const nomes = intencao.aparelhos.map(function (a) { return APARELHOS[a] || a; });
+      linha(lista, 'Em quais aparelhos', nomes.join(', '));
+      (mesmaLista ? p.itens || [] : []).filter(function (item) { return nomes.includes(item.aparelho); }).forEach(function (item) {
         const partes = [].concat(item.itens.filtroAdulto ? ['todos os sites adultos (filtro de DNS)'] : [],
+          (item.itens.apps || []).map(function (a) { return 'app ' + a; }),
           item.itens.dominios || [], item.itens.processos || [], item.itens.padroesDeUrl || []);
         if (partes.length) linha(lista, 'Inclui, no ' + item.aparelho, partes.join(', '));
       });
