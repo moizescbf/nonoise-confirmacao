@@ -46,8 +46,11 @@
 <script>
   // A página só mostra o pedido e entrega o comprovante do Telegram. Quem decide se a liberação vale
   // são os aparelhos, conferindo a assinatura; por isso a página não precisa de login.
+  // O que ela mostra sai da intenção, o texto exato que os aparelhos aplicam, depois de conferir que o
+  // código dela bate com o do link aberto: assim o servidor não consegue mostrar uma coisa e liberar outra.
   (function () {
     const API = 'https://gnjhbhifsvhbhwlgfdal.supabase.co/functions/v1/confirmacao';
+    const APARELHOS = { pc: 'PC', celular: 'Celular' };
     const tg = window.Telegram && window.Telegram.WebApp;
     const alvo = document.getElementById('conteudo');
     const codigo = tg && tg.initDataUnsafe ? tg.initDataUnsafe.start_param : '';
@@ -64,12 +67,42 @@
       .catch(function () { aviso('Sem conexão com o servidor. Feche e abra de novo.'); });
 
     function mostrar(p) {
+      conferir(p.intencao)
+        .then(function (intencao) {
+          intencao ? montar(p, intencao) : aviso('Este pedido não confere com o link que você abriu. Não aprove e avise quem pediu.');
+        })
+        .catch(function () { aviso('Não foi possível conferir o pedido neste aparelho. Não aprove e avise quem pediu.'); });
+    }
+
+    // A intenção, se o código dela é o do link e o formato é o de um pedido de liberação; senão, nulo.
+    function conferir(texto) {
+      if (typeof texto !== 'string') return Promise.resolve(null);
+      return crypto.subtle.digest('SHA-256', new TextEncoder().encode(texto)).then(function (resumo) {
+        if (codigoDe(resumo) !== codigo) return null;
+        const i = JSON.parse(texto);
+        const valida = i && i.v === 1 && i.tipo === 'liberacao' && typeof i.lista === 'string'
+          && Number.isInteger(i.minutos) && i.minutos > 0 && Array.isArray(i.aparelhos);
+        return valida ? i : null;
+      });
+    }
+
+    // O mesmo código dos aparelhos: "n1" e o base64url dos 16 primeiros bytes do SHA-256 da intenção.
+    function codigoDe(resumo) {
+      let binario = '';
+      new Uint8Array(resumo).slice(0, 16).forEach(function (b) { binario += String.fromCharCode(b); });
+      return 'n1' + btoa(binario).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    }
+
+    // Lista, prazo e aparelhos vêm da intenção conferida. O nome da lista e o que ela inclui vêm do servidor
+    // e só aparecem quando são da mesma lista da intenção.
+    function montar(p, intencao) {
       alvo.replaceChildren();
+      const mesmaLista = p.lista === intencao.lista;
       const lista = document.createElement('dl');
-      linha(lista, 'O que libera', p.nome ? p.nome + ' (' + p.lista + ')' : p.lista);
-      linha(lista, 'Por quanto tempo', p.minutos + ' min');
-      linha(lista, 'Em quais aparelhos', p.aparelhos.join(', '));
-      (p.itens || []).forEach(function (item) {
+      linha(lista, 'O que libera', mesmaLista && p.nome ? p.nome + ' (' + intencao.lista + ')' : intencao.lista);
+      linha(lista, 'Por quanto tempo', intencao.minutos + ' min');
+      linha(lista, 'Em quais aparelhos', intencao.aparelhos.map(function (a) { return APARELHOS[a] || a; }).join(', '));
+      (mesmaLista ? p.itens || [] : []).forEach(function (item) {
         const partes = [].concat(item.itens.filtroAdulto ? ['todos os sites adultos (filtro de DNS)'] : [],
           item.itens.dominios || [], item.itens.processos || [], item.itens.padroesDeUrl || []);
         if (partes.length) linha(lista, 'Inclui, no ' + item.aparelho, partes.join(', '));
@@ -79,7 +112,7 @@
       if (p.estado !== 'pendente') { paragrafo('Este pedido já foi ' + p.estado + '.'); return; }
       if (p.vencido) { paragrafo('Este pedido venceu. Quem pediu precisa fazer um novo.'); return; }
 
-      const liberar = botao('Liberar por ' + p.minutos + ' min', 'principal');
+      const liberar = botao('Liberar por ' + intencao.minutos + ' min', 'principal');
       const agoraNao = botao('Agora não', 'secundario');
       agoraNao.onclick = function () { tg.close(); };
       liberar.onclick = function () { confirmar(liberar, agoraNao); };
