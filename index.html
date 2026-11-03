@@ -50,7 +50,7 @@
   // código dela bate com o do link aberto: assim o servidor não consegue mostrar uma coisa e liberar outra.
   (function () {
     const API = 'https://gnjhbhifsvhbhwlgfdal.supabase.co/functions/v1/confirmacao';
-    const APARELHOS = { pc: 'PC', celular: 'Celular', tablet: 'Tablet' };
+    const APARELHOS = { pc: 'PC', celular: 'Celular', tablet: 'Tablet', notebook: 'Notebook' };
     const tg = window.Telegram && window.Telegram.WebApp;
     const alvo = document.getElementById('conteudo');
     const codigo = tg && tg.initDataUnsafe ? tg.initDataUnsafe.start_param : '';
@@ -80,7 +80,10 @@
       return crypto.subtle.digest('SHA-256', new TextEncoder().encode(texto)).then(function (resumo) {
         if (codigoDe(resumo) !== codigo) return null;
         const i = JSON.parse(texto);
-        const comum = i && i.v === 1 && typeof i.lista === 'string' && Array.isArray(i.aparelhos);
+        // Um grupo leva "listas" no lugar de "lista", só em pedidos de liberação.
+        const grupo = i && i.tipo === 'liberacao' && i.lista === undefined && Array.isArray(i.listas) && i.listas.length > 0
+          && i.listas.every(function (l) { return typeof l === 'string'; });
+        const comum = i && i.v === 1 && (typeof i.lista === 'string' && i.listas === undefined || grupo) && Array.isArray(i.aparelhos);
         const liberacao = i && i.tipo === 'liberacao' && Number.isInteger(i.minutos) && i.minutos > 0;
         const afrouxar = i && i.tipo === 'afrouxar' && (i.dominio === null || typeof i.dominio === 'string');
         return comum && (liberacao || afrouxar) ? i : null;
@@ -95,12 +98,15 @@
     }
 
     // Lista, prazo e aparelhos vêm da intenção conferida. O nome da lista e o que ela inclui vêm do servidor
-    // e só aparecem quando são da mesma lista da intenção.
+    // e só aparecem quando são da mesma lista da intenção. Num grupo, as listas vêm da intenção, e o nome do
+    // grupo, do servidor, só como título.
     function montar(p, intencao) {
       alvo.replaceChildren();
-      const mesmaLista = p.lista === intencao.lista;
+      const mesmaLista = intencao.lista !== undefined && p.lista === intencao.lista;
       const lista = document.createElement('dl');
-      const nomeDaLista = mesmaLista && p.nome ? p.nome + ' (' + intencao.lista + ')' : intencao.lista;
+      const nomeDaLista = intencao.listas
+        ? (p.nome ? p.nome + ': ' : '') + intencao.listas.join(', ')
+        : mesmaLista && p.nome ? p.nome + ' (' + intencao.lista + ')' : intencao.lista;
       const afrouxar = intencao.tipo === 'afrouxar';
       if (afrouxar) {
         linha(lista, 'O que muda', intencao.dominio ? 'Tirar ' + intencao.dominio + ' da lista ' + nomeDaLista : 'Tirar a lista inteira: ' + nomeDaLista);
