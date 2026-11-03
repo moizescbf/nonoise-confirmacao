@@ -86,6 +86,10 @@
         const comum = i && i.v === 1 && (typeof i.lista === 'string' && i.listas === undefined || grupo) && Array.isArray(i.aparelhos);
         const liberacao = i && i.tipo === 'liberacao' && Number.isInteger(i.minutos) && i.minutos > 0;
         const afrouxar = i && i.tipo === 'afrouxar' && (i.dominio === null || typeof i.dominio === 'string');
+        // Uma exceção de rede não tem lista: leva o nome da rede Wi-Fi.
+        const rede = i && i.v === 1 && i.tipo === 'rede' && typeof i.rede === 'string' && i.rede.trim() !== ''
+          && i.lista === undefined && i.listas === undefined && Array.isArray(i.aparelhos);
+        if (rede) return i;
         return comum && (liberacao || afrouxar) ? i : null;
       });
     }
@@ -108,7 +112,11 @@
         ? (p.nome ? p.nome + ': ' : '') + intencao.listas.join(', ')
         : mesmaLista && p.nome ? p.nome + ' (' + intencao.lista + ')' : intencao.lista;
       const afrouxar = intencao.tipo === 'afrouxar';
-      if (afrouxar) {
+      const rede = intencao.tipo === 'rede';
+      if (rede) {
+        linha(lista, 'O que muda', 'Na rede Wi-Fi "' + intencao.rede + '", o filtro adulto sai do DNS, só enquanto essa rede bloquear o DNS do filtro. A Busca Segura do Chrome continua.');
+        linha(lista, 'Por quanto tempo', 'Sem prazo');
+      } else if (afrouxar) {
         linha(lista, 'O que muda', intencao.dominio ? 'Tirar ' + intencao.dominio + ' da lista ' + nomeDaLista : 'Tirar a lista inteira: ' + nomeDaLista);
         linha(lista, 'Por quanto tempo', 'Sem prazo: fica liberado até alguém bloquear de novo');
       } else {
@@ -128,7 +136,7 @@
       if (p.estado !== 'pendente') { paragrafo('Este pedido já foi ' + p.estado + '.'); return; }
       if (p.vencido) { paragrafo('Este pedido venceu. Quem pediu precisa fazer um novo.'); return; }
 
-      const liberar = botao(afrouxar ? 'Aprovar a mudança' : 'Liberar por ' + intencao.minutos + ' min', 'principal');
+      const liberar = botao(afrouxar || rede ? 'Aprovar a mudança' : 'Liberar por ' + intencao.minutos + ' min', 'principal');
       const agoraNao = botao('Agora não', 'secundario');
       agoraNao.onclick = function () { tg.close(); };
       liberar.onclick = function () { confirmar(liberar, agoraNao); };
